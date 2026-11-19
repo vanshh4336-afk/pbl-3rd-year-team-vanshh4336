@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · IntelliSched</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar"><div class="brand-mark">IS</div><div><p class="eyebrow">PBL PROJECT · SYSTEMS LAB</p><h1>IntelliSched</h1></div></header>
+  <main class="auth-main">
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+    <section class="panel auth-panel"><p class="eyebrow">ACCOUNT ACCESS</p><h2>Sign in</h2><p class="muted">Use an account created by the project administrator.</p>
+      <form method="post" class="auth-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Username<input name="username" autocomplete="username" required maxlength="80"></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button class="primary-button" type="submit">Sign in <span>→</span></button></form>
+    </section>
+    <footer>IntelliSched · Local project dashboard</footer>
+  </main>
+</body>
+</html>

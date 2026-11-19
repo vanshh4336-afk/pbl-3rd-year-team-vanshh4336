@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IntelliSched Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar"><div class="brand-mark">IS</div><div><p class="eyebrow">PBL PROJECT · SYSTEMS LAB</p><h1>IntelliSched</h1></div><nav><a class="nav-link active" href="{{ url_for('index') }}">Dashboard</a><a class="nav-link create-link" href="{{ url_for('new_simulation') }}">＋ New simulation</a>{% if current_user.role == 'admin' %}<a class="nav-link" href="{{ url_for('manage_users') }}">Admin users</a>{% endif %}</nav><span class="live">{{ current_user.username }} · {{ current_user.role|upper }}</span><form method="post" action="{{ url_for('logout') }}" class="logout-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="nav-link" type="submit">Sign out</button></form></header>
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+    {% if error %}
+      <section class="notice error"><h2>Could not load MySQL data</h2><p>{{ error }}</p><p>Check that MySQL is running, the <code>intellisched</code> database exists, and the connection settings are correct.</p></section>
+    {% else %}
+      <section class="panel" id="system-monitor">
+        <div class="panel-title"><div><p class="eyebrow">LOCAL HOST MONITOR</p><h2>CPU and memory usage</h2><p class="muted">Samples refresh here every 5 seconds when the monitor script is running.</p></div><span class="tag">{{ data.latest_system_metric.host_name if data.latest_system_metric else 'NO MONITOR DATA' }}</span></div>
+        <div class="metrics-grid">
+          <article class="metric-card"><div class="metric-head"><span>CPU use</span><span class="dot"></span></div><strong id="cpu-value">{% if data.latest_system_metric %}{{ '%.1f'|format(data.latest_system_metric.cpu_percent|float) }}{% else %}—{% endif %}<small>%</small></strong><p>whole computer</p></article>
+          <article class="metric-card"><div class="metric-head"><span>RAM use</span><span class="dot"></span></div><strong id="memory-value">{% if data.latest_system_metric %}{{ '%.1f'|format(data.latest_system_metric.memory_percent|float) }}{% else %}—{% endif %}<small>%</small></strong><p id="memory-detail">{% if data.latest_system_metric %}{{ '%.2f'|format(data.latest_system_metric.memory_used_bytes / (1024 ** 3)) }} / {{ '%.2f'|format(data.latest_system_metric.memory_total_bytes / (1024 ** 3)) }} GiB{% else %}used / total{% endif %}</p></article>
+          <article class="metric-card"><div class="metric-head"><span>60-second forecast</span><span class="dot"></span></div><strong>CPU <span id="cpu-forecast">{% if data.latest_prediction %}{{ '%.1f'|format(data.latest_prediction.cpu_predicted_percent|float) }}{% else %}—{% endif %}</span><small>%</small></strong><p>RAM <b id="memory-forecast">{% if data.latest_prediction %}{{ '%.1f'|format(data.latest_prediction.memory_predicted_percent|float) }}{% else %}—{% endif %}%</b></p><div class="metric-foot" id="forecast-status">{% if data.latest_prediction %}{% if data.latest_prediction.high_load_predicted %}High load predicted (80% threshold){% else %}No high load predicted (80% threshold){% endif %} · {{ data.latest_prediction.sample_count }} samples · {{ data.latest_prediction.predicted_at }}{% else %}Waiting for 10 history samples{% endif %}</div></article>
+        </div>
+        <p class="timestamp" id="monitor-status">{% if data.latest_system_metric %}Last sample: {{ data.latest_system_metric.captured_at }}{% else %}No readings yet. Start the local monitor script to collect samples.{% endif %}</p>
+        <h3>Recent measurements</h3><div class="table-wrap"><table><thead><tr><th>Time</th><th>CPU %</th><th>RAM %</th><th>RAM used / total</th></tr></thead><tbody id="monitor-history">
+          {% for metric in data.system_metrics %}<tr data-metric-id="{{ metric.metric_id }}"><td>{{ metric.captured_at }}</td><td>{{ '%.1f'|format(metric.cpu_percent|float) }}</td><td>{{ '%.1f'|format(metric.memory_percent|float) }}</td><td>{{ '%.2f'|format(metric.memory_used_bytes / (1024 ** 3)) }} / {{ '%.2f'|format(metric.memory_total_bytes / (1024 ** 3)) }} GiB</td></tr>{% endfor %}
+          {% if not data.system_metrics %}<tr id="monitor-empty"><td colspan="4">No measurements collected yet.</td></tr>{% endif %}
+        </tbody></table></div>
+      </section>
+      <section class="panel">
+        <div class="panel-title"><div><p class="eyebrow">HISTORICAL RESOURCE ANALYTICS</p><h2>Recent CPU and RAM trends</h2><p class="muted">Descriptive comparison of the earlier and later readings in the last {{ data.resource_trends.sample_count }} samples.</p></div></div>
+        {% if data.resource_trends.sample_count %}
+        <div class="metrics-grid">
+          <article class="metric-card"><div class="metric-head"><span>CPU trend</span><span class="dot"></span></div><strong>{{ '%.1f'|format(data.resource_trends.cpu_average) }}<small>% average</small></strong><p>Recent direction: <b>{{ data.resource_trends.cpu_direction }}</b></p></article>
+          <article class="metric-card"><div class="metric-head"><span>RAM trend</span><span class="dot"></span></div><strong>{{ '%.1f'|format(data.resource_trends.memory_average) }}<small>% average</small></strong><p>Recent direction: <b>{{ data.resource_trends.memory_direction }}</b></p></article>
+          <article class="metric-card"><div class="metric-head"><span>High-load history</span><span class="dot"></span></div><strong>{{ data.resource_trends.high_load_count }}<small> / {{ data.resource_trends.sample_count }}</small></strong><p>Forecasts at or above the 80% threshold</p></article>
+          <article class="metric-card"><div class="metric-head"><span>AI anomaly scan</span><span class="dot"></span></div><strong>{{ data.resource_anomalies.anomaly_count }}<small> flagged</small></strong><p>{{ data.resource_anomalies.status }} · {{ data.resource_anomalies.sample_count }} readings scanned</p></article>
+        </div>
+        {% else %}<p class="muted">Trend analytics will appear after the local monitor has collected readings.</p>{% endif %}
+      </section>
+      <section class="notice load-alert" id="load-alert" {% if not data.load_alert %}hidden{% endif %}>
+        <p class="eyebrow">PREDICTED HIGH LOAD</p><h2>CPU or memory may reach 80%</h2>
+        <p id="load-alert-recommendation">{{ data.recommendation or 'Consider delaying low-priority work until CPU and RAM fall below 80%. No process was changed.' }}</p>
+      </section>
+    {% if not data.run %}
+      <section class="notice"><h2>No saved simulations yet</h2><p>Run the IntelliSched C++ program and choose its save option. Saved runs will appear here.</p></section>
+    {% else %}
+      <section class="intro"><div><p class="eyebrow">SIMULATION OVERVIEW</p><h2>Run #{{ data.run.run_id }}</h2><p class="muted">Created {{ data.run.created_at }} · {{ data.run.process_count }} processes · Round Robin quantum {{ data.run.round_robin_quantum }}</p></div>
+        <form method="get" class="run-picker"><label for="run_id">Saved run</label><select name="run_id" id="run_id" onchange="this.form.submit()">{% for run in data.runs %}<option value="{{ run.run_id }}" {% if run.run_id == data.run.run_id %}selected{% endif %}>Run #{{ run.run_id }} · {{ run.created_at }}</option>{% endfor %}</select><a class="secondary-button" href="{{ url_for('download_run_report', run_id=data.run.run_id) }}">Download CSV report</a></form></section>
+      <section class="metrics-grid">{% for metric in data.metrics %}<article class="metric-card"><div class="metric-head"><span>{{ metric.algorithm|replace('_',' ') }}</span><span class="dot"></span></div><strong>{{ '%.2f'|format(metric.avg_waiting or 0) }}<small> units</small></strong><p>average waiting time</p><div class="metric-foot">Response <b>{{ '%.2f'|format(metric.avg_response or 0) }}</b><span>Turnaround <b>{{ '%.2f'|format(metric.avg_turnaround or 0) }}</b></span><span>CPU busy <b>{{ '%.1f'|format((metric.cpu_utilization or 0) * 100) }}%</b></span></div></article>{% endfor %}</section>
+      <section class="panel queue-panel"><div class="panel-title"><div><p class="eyebrow">SIMULATION PLAYBACK</p><h2>Process queue snapshot</h2><p class="muted">Move the clock to inspect each process state in the saved schedule. This is a replay, not live OS process control.</p></div></div><div class="playback-controls"><label>Algorithm<select id="queue-algorithm"><option value="FCFS">FCFS</option><option value="ROUND_ROBIN">Round Robin</option><option value="PRIORITY">Priority</option><option value="SJF">SJF</option></select></label><label class="clock-control">Simulation time <strong id="queue-clock">0</strong><input id="queue-time" type="range" min="0" max="0" step="1" value="0"></label></div><div id="queue-unavailable" class="queue-idle" hidden></div><div id="queue-idle" class="queue-idle" hidden>CPU idle at this simulation time</div><div class="queue-grid"><article><h3>New</h3><div id="queue-new" class="queue-list"></div></article><article><h3>Ready queue</h3><div id="queue-ready" class="queue-list"></div></article><article><h3>Running</h3><div id="queue-running" class="queue-list"></div></article><article><h3>Terminated</h3><div id="queue-terminated" class="queue-list"></div></article></div></section>
+      <section class="panel"><div class="panel-title"><div><p class="eyebrow">SCHEDULER OUTPUT</p><h2>Per-process results and state flow</h2><p class="muted">Response time is the delay until a process first receives CPU time. Waiting here means delayed while waiting for CPU time.</p></div></div><div class="table-wrap"><table><thead><tr><th>Process</th><th>Arrival</th><th>Burst</th><th>Priority</th><th>Algorithm</th><th>State flow</th><th>Start</th><th>Complete</th><th>Response</th><th>Waiting</th><th>Turnaround</th></tr></thead><tbody>{% for p in data.processes %}<tr><td class="process">P{{ p.process_number }}</td><td>{{ p.arrival_time }}</td><td>{{ p.burst_time }}</td><td>{{ p.priority }}</td><td><span class="tag">{{ p.algorithm|replace('_',' ') }}</span></td><td>{{ p.state_flow }}</td><td>{{ p.start_time }}</td><td>{{ p.completion_time }}</td><td>{{ p.response_time }}</td><td>{{ p.waiting_time }}</td><td>{{ p.turnaround_time }}</td></tr>{% endfor %}</tbody></table></div></section>
+      <div class="lower-grid"><section class="panel"><div class="panel-title"><div><p class="eyebrow">RESOURCE MANAGEMENT</p><h2>Available resources</h2></div></div>{% if data.resources %}<div class="resource-list">{% for r in data.resources %}<div class="resource"><div><b>{{ r.resource_name }}</b><span>{{ r.available_units }} available / {{ r.total_units }} total</span></div><div class="bar"><i style="width: {{ (100 * r.available_units / r.total_units if r.total_units else 0)|round|int }}%"></i></div></div>{% endfor %}</div>{% else %}<p class="muted">No resource types recorded for this run.</p>{% endif %}{% if data.allocations %}<h3>Process claims</h3><div class="table-wrap"><table><thead><tr><th>Process</th><th>Resource</th><th>Allocated</th><th>Maximum</th></tr></thead><tbody>{% for a in data.allocations %}<tr><td>P{{ a.process_number }}</td><td>{{ a.resource_name }}</td><td>{{ a.allocated_units }}</td><td>{{ a.maximum_units }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}</section>
+        <section class="panel safety"><p class="eyebrow">BANKER’S ALGORITHM</p><h2>Safety check</h2>{% if data.banker %}<div class="safety-status {% if data.banker.is_safe %}safe{% else %}unsafe{% endif %}"><span>{% if data.banker.is_safe %}SAFE STATE{% else %}UNSAFE STATE{% endif %}</span><b>{% if data.banker.is_safe %}✓{% else %}!{% endif %}</b></div>{% if data.banker.is_safe %}<p class="muted">Safe sequence</p><div class="sequence">{% for p in data.banker.safe_sequence %}<span>{{ p }}</span>{% if not loop.last %}<i>→</i>{% endif %}{% endfor %}</div>{% if data.banker_steps %}<h3>Resource release simulation</h3><p class="muted">When each process finishes in this hypothetical safe order, its allocated units return to the available pool. Saved allocations are unchanged.</p><div class="table-wrap"><table><thead><tr><th>Step</th><th>Process</th><th>Resource</th><th>Available before</th><th>Need</th><th>Released</th><th>Available after</th></tr></thead><tbody>{% for step in data.banker_steps %}{% for r in step.resources %}<tr><td>{{ step.step }}</td><td>{{ step.process }}</td><td>{{ r.resource_name }}</td><td>{{ r.available_before }}</td><td>{{ r.need }}</td><td>{{ r.released }}</td><td>{{ r.available_after }}</td></tr>{% endfor %}{% endfor %}</tbody></table></div>{% endif %}{% endif %}<p class="timestamp">Checked {{ data.banker.checked_at }}</p>{% else %}<p class="muted">No Banker’s safety check was saved for this run.</p>{% endif %}</section></div>
+      <footer>IntelliSched · Data loaded from your local MySQL database</footer>
+    {% endif %}
+    {% endif %}
+  </main>
+  <script>
+    const queuePlayback = {{ data.queue_playback|tojson }};
+    const queueAlgorithm = document.getElementById("queue-algorithm");
+    const queueTime = document.getElementById("queue-time");
+    function drawQueueSnapshot() {
+      if (!queueAlgorithm || !queueTime) return;
+      const schedule = queuePlayback[queueAlgorithm.value];
+      const queueGrid = document.querySelector(".queue-grid");
+      const unavailable = document.getElementById("queue-unavailable");
+      if (!schedule || !schedule.available) {
+        queueGrid.hidden = true;
+        queueTime.disabled = true;
+        unavailable.textContent = schedule?.reason || "No saved queue timeline is available for this run.";
+        unavailable.hidden = false;
+        document.getElementById("queue-idle").hidden = true;
+        return;
+      }
+      queueGrid.hidden = false;
+      unavailable.hidden = true;
+      queueTime.disabled = false;
+      queueTime.max = schedule.duration;
+      const time = Math.min(Number(queueTime.value), schedule.duration);
+      queueTime.value = time;
+      document.getElementById("queue-clock").textContent = time;
+      const runningSegment = schedule.segments.find(segment => segment.start <= time && time < segment.end);
+      const queues = {"new": [], ready: [], running: [], terminated: []};
+      for (const job of schedule.jobs) {
+        const ownSegments = schedule.segments.filter(segment => segment.process_number === job.process_number);
+        const completion = Math.max(...ownSegments.map(segment => segment.end));
+        if (job.arrival_time > time) queues.new.push(job.process_number);
+        else if (time >= completion) queues.terminated.push(job.process_number);
+        else if (runningSegment?.process_number === job.process_number) queues.running.push(job.process_number);
+        else queues.ready.push(job.process_number);
+      }
+      queues.ready.sort((a, b) => {
+        const nextA = schedule.segments.find(segment => segment.process_number === a && segment.start > time)?.start ?? Infinity;
+        const nextB = schedule.segments.find(segment => segment.process_number === b && segment.start > time)?.start ?? Infinity;
+        return nextA - nextB || a - b;
+      });
+      for (const [name, processNumbers] of Object.entries(queues)) {
+        const list = document.getElementById(`queue-${name}`);
+        list.replaceChildren();
+        if (!processNumbers.length) {
+          const empty = document.createElement("span"); empty.className = "queue-empty"; empty.textContent = "Empty"; list.appendChild(empty);
+        } else {
+          processNumbers.forEach(number => {
+            const item = document.createElement("span"); item.className = "queue-process"; item.textContent = `P${number}`; list.appendChild(item);
+          });
+        }
+      }
+      document.getElementById("queue-idle").hidden = Boolean(runningSegment);
+    }
+    queueAlgorithm?.addEventListener("change", () => { queueTime.value = 0; drawQueueSnapshot(); });
+    queueTime?.addEventListener("input", drawQueueSnapshot);
+    drawQueueSnapshot();
+    let latestMetricId = {{ data.latest_system_metric.metric_id if data.latest_system_metric else 'null' }};
+    const gib = bytes => (bytes / (1024 ** 3)).toFixed(2);
+    async function refreshSystemMetrics() {
+      try {
+        const response = await fetch("{{ url_for('latest_system_metrics', run_id=data.run.run_id if data.run else '') }}", {cache: "no-store"});
+        if (!response.ok) throw new Error("Could not read monitor data");
+        const payload = await response.json();
+        const metric = payload.metric;
+        if (metric) {
+          document.getElementById("cpu-value").textContent = metric.cpu_percent.toFixed(1) + "%";
+          document.getElementById("memory-value").textContent = metric.memory_percent.toFixed(1) + "%";
+          document.getElementById("memory-detail").textContent = `${gib(metric.memory_used_bytes)} / ${gib(metric.memory_total_bytes)} GiB`;
+          document.getElementById("monitor-status").textContent = `Last sample from ${metric.host_name}: ${metric.captured_at}`;
+          const history = document.getElementById("monitor-history");
+          if (metric.metric_id !== latestMetricId) {
+            document.getElementById("monitor-empty")?.remove();
+            const row = document.createElement("tr");
+            row.dataset.metricId = metric.metric_id;
+            [metric.captured_at, metric.cpu_percent.toFixed(1), metric.memory_percent.toFixed(1), `${gib(metric.memory_used_bytes)} / ${gib(metric.memory_total_bytes)} GiB`].forEach(value => {
+              const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
+            });
+            history.prepend(row);
+            while (history.rows.length > 10) history.deleteRow(-1);
+            latestMetricId = metric.metric_id;
+          }
+        }
+        if (payload.prediction) {
+          const prediction = payload.prediction;
+          document.getElementById("cpu-forecast").textContent = prediction.cpu_predicted_percent.toFixed(1);
+          document.getElementById("memory-forecast").textContent = prediction.memory_predicted_percent.toFixed(1) + "%";
+          const risk = prediction.high_load_predicted ? "High load predicted (80% threshold)" : "No high load predicted (80% threshold)";
+          document.getElementById("forecast-status").textContent = `${risk} · ${prediction.sample_count} samples · ${prediction.horizon_seconds}s forecast · ${prediction.predicted_at}`;
+          const alert = document.getElementById("load-alert");
+          alert.hidden = !prediction.high_load_predicted;
+          if (prediction.high_load_predicted) {
+            document.getElementById("load-alert-recommendation").textContent = payload.recommendation || "Consider delaying low-priority work until CPU and RAM fall below 80%. No process was changed.";
+          }
+        } else {
+          document.getElementById("forecast-status").textContent = "Waiting for at least 10 samples before forecasting.";
+          document.getElementById("load-alert").hidden = true;
+        }
+      } catch (error) {
+        document.getElementById("monitor-status").textContent = "Monitor data could not be refreshed. Check that MySQL is available.";
+      }
+    }
+    if (document.getElementById("system-monitor")) setInterval(refreshSystemMetrics, 5000);
+  </script>
+</body>
+</html>

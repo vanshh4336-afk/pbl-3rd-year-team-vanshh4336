@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New simulation · IntelliSched</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar"><a class="brand-mark" href="{{ url_for('index') }}">IS</a><div><p class="eyebrow">PBL PROJECT · SYSTEMS LAB</p><h1>IntelliSched</h1></div><nav><a class="nav-link" href="{{ url_for('index') }}">Dashboard</a><a class="nav-link create-link active" href="{{ url_for('new_simulation') }}">＋ New simulation</a>{% if current_user.role == 'admin' %}<a class="nav-link" href="{{ url_for('manage_users') }}">Admin users</a>{% endif %}</nav><span class="live">{{ current_user.username }} · {{ current_user.role|upper }}</span><form method="post" action="{{ url_for('logout') }}" class="logout-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="nav-link" type="submit">Sign out</button></form></header>
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+    <section class="intro"><div><p class="eyebrow">CREATE AND SAVE</p><h2>New simulation</h2><p class="muted">Enter process and resource data. IntelliSched will calculate all four schedulers and the Banker safety result.</p></div></section>
+    <form method="post" id="simulation-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <section class="panel config-panel"><div class="panel-title"><div><p class="eyebrow">SIMULATION SETTINGS</p><h2>Choose input size</h2></div></div>
+        <input id="process-count" name="process_count" type="hidden" value="{{ process_count }}">
+        <div class="config-grid"><label>Processes <strong id="process-total">{{ process_count }}</strong> / 20</label><label>Resource types (1–10)<input id="resource-count" name="resource_count" type="number" min="1" max="10" value="{{ resource_count }}" required></label><label>Round Robin quantum<input name="quantum" type="number" min="1" max="1000000" value="2" required></label><label>Priority rule<select name="priority_convention"><option value="LOWER_NUMBER_FIRST">Lower number means higher priority</option><option value="HIGHER_NUMBER_FIRST">Higher number means higher priority</option></select></label></div>
+        <button class="secondary-button" id="update-grid" type="button">Apply resource count</button><p class="hint">Add or terminate processes below. Process fields can be edited before the run is scheduled.</p>
+      </section>
+      <section class="panel"><div class="panel-title"><div><p class="eyebrow">PROCESS MANAGER</p><h2>Create, update, terminate, and monitor</h2><p class="muted">Processes remain NEW until scheduling starts.</p></div><button class="secondary-button" id="add-process" type="button">＋ Add process</button></div><div class="table-wrap"><table><thead><tr><th>Process</th><th>Arrival time</th><th>Burst time</th><th>Priority</th><th>Current state</th><th>Action</th></tr></thead><tbody id="process-rows"></tbody></table></div></section>
+      <section class="panel"><div class="panel-title"><div><p class="eyebrow">BANKER’S SAFETY INPUT</p><h2>Resources and claims</h2><p class="muted">Available units are the units not currently allocated. Maximum is each process’s total claim.</p></div></div><div id="resource-fields"></div></section>
+      <div class="form-actions"><a class="secondary-button" href="{{ url_for('index') }}">Cancel</a><button class="primary-button" type="submit">Calculate and save run <span>→</span></button></div>
+    </form>
+    <footer>Each submission creates a new saved run in MySQL</footer>
+  </main>
+  <script>
+    const processCount = document.getElementById('process-count');
+    const resourceCount = document.getElementById('resource-count');
+    const processTotal = document.getElementById('process-total');
+    function field(name, value, min, max, label) {
+      return `<label class="cell-input" aria-label="${label}"><input name="${name}" type="number" value="${value}" min="${min}" max="${max}" required></label>`;
+    }
+    let processData = Array.from({length: Math.max(1, Math.min(20, Number(processCount.value) || 3))}, (_, i) =>
+      ({arrival: 0, burst: i === 0 ? 5 : 3, priority: i + 1}));
+    let availableData = [];
+    let allocationData = [];
+    let maximumData = [];
+    let renderedResourceCount = 0;
+    function captureGrid() {
+      processData = processData.map((p, i) => ({
+        arrival: document.querySelector(`[name="arrival_${i+1}"]`)?.value ?? p.arrival,
+        burst: document.querySelector(`[name="burst_${i+1}"]`)?.value ?? p.burst,
+        priority: document.querySelector(`[name="priority_${i+1}"]`)?.value ?? p.priority
+      }));
+      for (let r = 0; r < renderedResourceCount; r++) {
+        availableData[r] = document.querySelector(`[name="available_${r+1}"]`)?.value ?? availableData[r] ?? 3;
+      }
+      allocationData = processData.map((_, p) => Array.from({length: renderedResourceCount}, (_, r) =>
+        document.querySelector(`[name="allocated_${p+1}_${r+1}"]`)?.value ?? allocationData[p]?.[r] ?? 0));
+      maximumData = processData.map((_, p) => Array.from({length: renderedResourceCount}, (_, r) =>
+        document.querySelector(`[name="maximum_${p+1}_${r+1}"]`)?.value ?? maximumData[p]?.[r] ?? 1));
+    }
+    function buildGrid() {
+      const pc = processData.length;
+      const rc = Math.max(1, Math.min(10, Number(resourceCount.value) || 1));
+      processCount.value = pc;
+      processTotal.textContent = pc;
+      resourceCount.value = rc;
+      document.getElementById('process-rows').innerHTML = Array.from({length: pc}, (_, i) =>
+        `<tr><td class="process">P${i + 1}</td><td>${field(`arrival_${i+1}`, processData[i].arrival, 0, 1000000, `P${i+1} arrival time`)}</td><td>${field(`burst_${i+1}`, processData[i].burst, 1, 1000000, `P${i+1} burst time`)}</td><td>${field(`priority_${i+1}`, processData[i].priority, 1, 100, `P${i+1} priority`)}</td><td><span class="tag">NEW</span></td><td><button class="secondary-button terminate-process" data-index="${i}" type="button" ${pc === 1 ? 'disabled' : ''}>Terminate</button></td></tr>`).join('');
+      const headers = Array.from({length: rc}, (_, r) => `<th>R${r+1} available <input class="available-input" name="available_${r+1}" type="number" min="0" max="1000" value="${availableData[r] ?? 3}" required></th>`).join('');
+      const rows = Array.from({length: pc}, (_, p) => `<tr><td class="process">P${p+1}</td>${Array.from({length: rc}, (_, r) => `<td><div class="claim-cell"><span>Allocated</span>${field(`allocated_${p+1}_${r+1}`, allocationData[p]?.[r] ?? 0, 0, 1000, `P${p+1} R${r+1} allocated units`)}<span>Maximum</span>${field(`maximum_${p+1}_${r+1}`, maximumData[p]?.[r] ?? 1, 0, 10000, `P${p+1} R${r+1} maximum claim`)}</div></td>`).join('')}</tr>`).join('');
+      document.getElementById('resource-fields').innerHTML = `<div class="table-wrap"><table class="claim-table"><thead><tr><th>Process</th>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
+      document.getElementById('add-process').disabled = pc >= 20;
+      renderedResourceCount = rc;
+    }
+    document.getElementById('add-process').addEventListener('click', () => {
+      captureGrid();
+      if (processData.length >= 20) return;
+      const next = processData.length + 1;
+      processData.push({arrival: 0, burst: 3, priority: next});
+      allocationData.push(Array(renderedResourceCount).fill(0));
+      maximumData.push(Array(renderedResourceCount).fill(1));
+      buildGrid();
+    });
+    document.getElementById('process-rows').addEventListener('click', event => {
+      const button = event.target.closest('.terminate-process');
+      if (!button || processData.length <= 1) return;
+      captureGrid();
+      const index = Number(button.dataset.index);
+      processData.splice(index, 1);
+      allocationData.splice(index, 1);
+      maximumData.splice(index, 1);
+      buildGrid();
+    });
+    document.getElementById('update-grid').addEventListener('click', () => { captureGrid(); buildGrid(); });
+    buildGrid();
+  </script>
+</body>
+</html>

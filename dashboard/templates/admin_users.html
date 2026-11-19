@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>User administration · IntelliSched</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar"><a class="brand-mark" href="{{ url_for('index') }}">IS</a><div><p class="eyebrow">PBL PROJECT · SYSTEMS LAB</p><h1>IntelliSched</h1></div><nav><a class="nav-link" href="{{ url_for('index') }}">Dashboard</a><a class="nav-link active" href="{{ url_for('manage_users') }}">Admin users</a></nav><span class="live">{{ current_user.username }} · ADMIN</span><form method="post" action="{{ url_for('logout') }}" class="logout-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="nav-link" type="submit">Sign out</button></form></header>
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+    <section class="intro"><div><p class="eyebrow">ADMINISTRATION</p><h2>User accounts and roles</h2><p class="muted">Admins can create accounts, assign roles, and deactivate accounts.</p></div></section>
+    <section class="panel"><div class="panel-title"><div><p class="eyebrow">NEW ACCOUNT</p><h2>Create a user</h2></div></div><form method="post" class="config-grid"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create"><label>Username<input name="username" minlength="3" maxlength="80" pattern="[A-Za-z0-9_-]+" required></label><label>Initial password<input name="password" type="password" minlength="10" autocomplete="new-password" required></label><label>Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label><button class="primary-button" type="submit">Create account</button></form><p class="hint">Passwords require at least 10 characters and are stored as one-way hashes.</p></section>
+    <section class="panel"><div class="panel-title"><div><p class="eyebrow">ACCESS CONTROL</p><h2>Existing accounts</h2></div></div><div class="table-wrap"><table><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th>Change role</th><th>Account status</th></tr></thead><tbody>{% for user in users %}<tr><td>{{ user.username }}{% if user.user_id == current_user.user_id %} (you){% endif %}</td><td>{{ user.role }}</td><td>{{ 'Active' if user.is_active else 'Inactive' }}</td><td>{{ user.created_at }}</td><td>{% if user.user_id != current_user.user_id %}<form method="post" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="set_role"><input type="hidden" name="user_id" value="{{ user.user_id }}"><select name="role"><option value="user" {% if user.role == 'user' %}selected{% endif %}>User</option><option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option></select><button class="secondary-button" type="submit">Save</button></form>{% else %}—{% endif %}</td><td>{% if user.user_id != current_user.user_id %}<form method="post" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="toggle_active"><input type="hidden" name="user_id" value="{{ user.user_id }}"><button class="secondary-button" type="submit">{{ 'Deactivate' if user.is_active else 'Activate' }}</button></form>{% else %}Your account{% endif %}</td></tr>{% endfor %}</tbody></table></div><p class="hint">The final active admin cannot be demoted or deactivated. You cannot change your own account from this page.</p></section>
+    <footer>IntelliSched · Admin tools</footer>
+  </main>
+</body>
+</html>
